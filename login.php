@@ -1,30 +1,49 @@
 <?php
 session_start();
 
-// ================== CONFIG ==================
-// Change these when you upload to InfinityFree
-$DB_HOST = 'sqlXXX.infinityfree.com';   // your host
-$DB_USER = 'if0_XXXXXXX';
-$DB_PASS = 'your_password';
-$DB_NAME = 'if0_XXXXXXX_cloud';
+// ================== USERS FILE ==================
+$USERS_FILE = __DIR__ . '/users.json';
 
-// Simple hardcoded users for demo (replace with DB later if you want)
-$USERS = [
-    'admin@nano.com' => 'admin123',
-    'ceo@nano-suits.com' => 'secret',
-];
-// ============================================
+// Default users if file doesn't exist yet
+if (!file_exists($USERS_FILE)) {
+    $default = [
+        'admin@nano.com' => [
+            'password' => 'admin123',
+            'role'     => 'admin',
+            'name'     => 'Admin'
+        ],
+        'ceo@nano-suits.com' => [
+            'password' => 'secret',
+            'role'     => 'user',
+            'name'     => 'CEO'
+        ]
+    ];
+    file_put_contents($USERS_FILE, json_encode($default, JSON_PRETTY_PRINT));
+}
+
+function loadUsers() {
+    global $USERS_FILE;
+    return json_decode(file_get_contents($USERS_FILE), true) ?: [];
+}
+
+function saveUsers($users) {
+    global $USERS_FILE;
+    file_put_contents($USERS_FILE, json_encode($users, JSON_PRETTY_PRINT));
+}
+// ================================================
 
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $user = trim($_POST['user'] ?? '');
     $pass = $_POST['pass'] ?? '';
+    $users = loadUsers();
 
-    if (isset($USERS[$user]) && $USERS[$user] === $pass) {
+    if (isset($users[$user]) && $users[$user]['password'] === $pass) {
         $_SESSION['loggedin'] = true;
-        $_SESSION['user'] = $user;
-        $_SESSION['name'] = explode('@', $user)[0];
+        $_SESSION['user']     = $user;
+        $_SESSION['name']     = $users[$user]['name'] ?? explode('@', $user)[0];
+        $_SESSION['role']     = $users[$user]['role'] ?? 'user';
         header('Location: cloud.php');
         exit;
     } else {
@@ -70,11 +89,7 @@ if (!empty($_SESSION['loggedin'])) {
       border-radius: 18px;
       padding: 2.2rem;
     }
-    h1 {
-      font-size: 1.5rem;
-      font-weight: 700;
-      margin-bottom: 0.4rem;
-    }
+    h1 { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.4rem; }
     p { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.8rem; }
     label {
       display: block;
@@ -93,7 +108,6 @@ if (!empty($_SESSION['loggedin'])) {
       font-size: 0.95rem;
       margin-bottom: 1.1rem;
       outline: none;
-      transition: border-color 0.2s;
     }
     input:focus { border-color: var(--accent); }
     button {
