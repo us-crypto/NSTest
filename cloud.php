@@ -1,344 +1,296 @@
 <?php
 session_start();
 
-// $servername = "localhost";
-// $username = "root";
-// $password = "";
-// $datenbank = "dbs8882846";
-
-$servername = 'db5010488295.hosting-data.io';
-$username = 'dbu1319524';
-$password = "Strawberry09170917!";
-$datenbank = "dbs8882846";
-// Create connection
-$conn = new mysqli($servername, $username, $password, $datenbank);
-
-// Check connection
-if ($conn->connect_error) {
-    die("Connection failed: " . $conn->connect_error);
+if (empty($_SESSION['loggedin'])) {
+    header('Location: login.php');
+    exit;
 }
 
+// Root directory for files (create this folder on your host)
+define('ROOT', __DIR__ . '/files/');
+if (!is_dir(ROOT)) mkdir(ROOT, 0755, true);
 
-
-define("MAXSIZE", 15 * 1024 * 1024);
-
-function ta($in)
-{
-    echo ('<pre class ="ta">');
-    print_r($in);
-    echo ' </pre>';
+$path = ROOT;
+if (!empty($_POST['path'])) {
+    $requested = realpath(ROOT . $_POST['path']);
+    if ($requested && str_starts_with($requested, realpath(ROOT))) {
+        $path = $requested . (is_dir($requested) ? '/' : '');
+    }
 }
+$rel = str_replace(realpath(ROOT), '', realpath($path));
+$rel = $rel === '' ? '/' : $rel;
 
-define("FILETYPES", array(
-    "image/jpeg",
-    "image/gif",
-    "image/png",
-    "application/pdf"
-));
-define("DATADIR", "./Daten/");
+$msg = '';
 
+// Actions
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
 
-$pfad = DATADIR;
-$msg="";
+    if ($action === 'mkdir' && !empty($_POST['name'])) {
+        $name = basename($_POST['name']);
+        if (@mkdir($path . $name, 0755)) $msg = "Folder '$name' created";
+        else $msg = "Could not create folder";
+    }
 
-
-if (count($_POST)>0) {
-    $pfad=$_POST['VZ'];
-    ta($_POST);
-
-    switch ($_POST['wasTun']) {
-        case 'anlegen':
-            $ok=@mkdir($_POST['VZ'].$_POST['VZNeu'],0755,false);
-            if ($ok) {
-                $msg='<p class="error"> na baba ? ye chizaii baladia  o_O </p>';
-            }else{
-                $msg='<p class="error"> folder am balad nisti dorost koni ?omidi be zende budanet nist  :)))) </p>';
+    if ($action === 'upload' && !empty($_FILES['file']['name'][0])) {
+        foreach ($_FILES['file']['name'] as $i => $name) {
+            if ($_FILES['file']['error'][$i] === 0) {
+                $safe = basename($name);
+                move_uploaded_file($_FILES['file']['tmp_name'][$i], $path . $safe);
+                $msg = "Uploaded: $safe";
             }
-            echo($msg);
-            break;
-        case 'löschen':
-            if (isset($_POST['auswahl'])) {
-                foreach ($_POST['auswahl'] as $dvv) {
-                    if (is_dir($dvv)) {
-                        $msg='<p class="error"> foldere '.$dvv. ' ro pak kardi, motmaeni bayad pak mikardi ?  o_O </p>';
-                        @loescheVZ($dvv .'/');
-                    }else {
-                        $msg='<p class="error"> '.$dvv. ' ro pak kardi, motmaeni bayad pak mikardi ?  o_O </p>';
-                        @unlink($dvv);
-                    }
-                    echo($msg);
-                }
-            }else {
-                $msg='<p class="error"> chio pak mikoni? -_o </p>';
-                echo($msg);
-            }
-            break;
-        case 'verschieben':
-            if (isset($_POST['auswahl'])) {
-                foreach ($_POST['auswahl'] as $key) {
-                    $temp = explode("/", $key);
-                    $name = $temp[count($temp) - 1];
-                    rename($key, $_POST["VZToMove"] . $name);
+        }
+    }
+
+    if ($action === 'delete' && !empty($_POST['items'])) {
+        foreach ((array)$_POST['items'] as $item) {
+            $full = realpath($path . basename($item));
+            if ($full && str_starts_with($full, realpath(ROOT))) {
+                if (is_dir($full)) {
+                    // simple recursive delete
+                    $it = new RecursiveDirectoryIterator($full, RecursiveDirectoryIterator::SKIP_DOTS);
+                    $files = new RecursiveIteratorIterator($it, RecursiveIteratorIterator::CHILD_FIRST);
+                    foreach ($files as $f) $f->isDir() ? rmdir($f) : unlink($f);
+                    rmdir($full);
+                } else {
+                    unlink($full);
                 }
             }
-            break;
-        case 'umbenennen':#
-            if (isset($_POST['auswahl'])&&count($_POST['auswahl'])==1) {
-                if (isset($_POST["DVVUmbenennen"])&&$_POST["DVVUmbenennen"]!=null) {
-                    $pfad_alt=$_POST['auswahl'][0];
-                    $temp=explode('/',$pfad_alt);
-                    $temp_part=array_slice($temp,0,count($temp)-1);
-                    //ta($temp_part);
-                    $pfad_new = implode('/', $temp_part) . '/' . $_POST["DVVUmbenennen"];
-                
-                    rename($pfad_alt, $pfad_new );
-                }else {
-                    $msg='<p class="error"> esme jadid nazashti, be chi mikhai taghir bedi ? o_o </p>';
-                    echo($msg);
-                }
+        }
+        $msg = 'Deleted selected items';
+    }
 
-            
-            }else {
-                $msg='<p class="error"> faghat yeki entekhab kon -_- </p>';
-                echo($msg);
-            }
-            break;
-    }
-}
-if (count($_FILES)>0) {
-    $file=$_FILES['auswahlUL'];
-    //ta($_FILES);
-    if (count($file['name'])>0 &&strlen($file['name'][0]>0)) {
-        for ($i=0; $i < count($file['error']) ; $i++) { 
-            if ($file['error'][$i]==0) {
-                $ok=move_uploaded_file($file['tmp_name'][$i],$pfad.$file['name'][$i]);
-                if ($ok) {
-                    $msg='<p class="error"> upload am baladi ? dg chi baladi? '.$file['name'][$i].' upload shod </p>';
-                }else {
-                    $msg='<p class="error"> upload am baladi nisti ? '.$file['name'][$i].' upload nashod </p>';
-                }
-            } else {
-                $msg='<p class="error"> upload nashod '.$file['name'][$i].' ro baz upload kon </p>';
-            }
-            echo($msg);
-            
+    if ($action === 'rename' && !empty($_POST['old']) && !empty($_POST['new'])) {
+        $old = realpath($path . basename($_POST['old']));
+        $new = $path . basename($_POST['new']);
+        if ($old && str_starts_with($old, realpath(ROOT)) && @rename($old, $new)) {
+            $msg = 'Renamed successfully';
         }
     }
-    
-
-    // foreach ($_FILES["auswahlUL"]['error'] as $key) {
-    //     if ($key==0) {
-    //         move_uploaded_file($);
-    //     } else {
-    //         # code...
-    //     }
-        
-    // }
-}
-function loescheVZ($root){
-    $inhalt= scandir($root);
-    foreach ($inhalt as $key) {
-        if ($key!='.'&&$key!='..') {
-            if (is_dir($root.$key)) {
-                loescheVZ($root . $key . '/');
-            } else {
-                unlink($root . $key);
-            }
-            
-        }
-    }
-    rmdir($root);
-}
-function zeigeVzInhalt($pfadIN)
-{
-    $html = '
-        <table>
-            <thead>
-                <tr>
-                    <th scope="col"></th>
-                    <th scope="col">Name</th>
-                    <th scope="col">Size</th>
-                    <th scope="col">last update</th>
-                </tr>
-            </thead>
-            <tbody>
-        ';
-    $inhalt = scandir($pfadIN);
-    foreach ($inhalt as $dvv) {
-        $code="";
-        $size="";
-        $mb = "";
-        $dateTime = "";
-        $dateTime = date('d.m.Y H:i',filemtime($pfadIN . $dvv));
-        switch (TRUE) {
-            case is_dir($pfadIN . $dvv):
-                $class = 'dir';
-                $code = 'onDblclick="JS_leseVZ(\'' . $pfadIN . $dvv . '/\');"';
-                $size ="Folder";
-                break;
-
-            case is_file($pfadIN . $dvv):
-                $class = 'file';
-                $sizeB = filesize($pfadIN . $dvv);
-                $sizeNr = $sizeB/1024/1000;
-                $size =round($sizeNr, 2);
-                $mb = ' MB';
-                break;
-            case is_link($pfadIN . $dvv):
-                $class = 'link';
-                break;
-        }
-        if ($dvv != "." && $dvv != "..") {
-            $html .= '
-                <tr class="'.$class.'">
-                    <td><input type="checkbox" name="auswahl[]" value="'.$pfadIN . $dvv.'"></td>
-                    <td class="dvvname">
-                        <span '.$code.'>' . $dvv . '</span></td>
-                    <td>'.$size.$mb.'</td>
-                    <td>'.$dateTime.'</td>
-                </tr>
-                ';
-        }
-    }
-    $html .= '
-        </tbody>
-        <tfoot>
-        </tfoot>
-    </table>
-    ';
-    return $html;
-}
-function erzeugeBrotkruemelnav($pfadIn){
-    $html="<ul class='brotkruemel' >";
-    
-    $arr=explode("/",$pfadIn);
-    $pfad=$arr[0].'/';
-    for ($i=1; $i < count($arr)-1 ; $i++) { 
-        $pfad.=$arr[$i].'/';
-        $html.='<li>
-                    <a onclick="JS_leseVZ(\''.$pfad.'\');">'.$arr[$i].'</a>
-                </li>';
-    }
-    $html.="</ul";
-    return $html;
 }
 
-function zeigeVZStruktur($root,$isRoot=true){
-    $html = "<ul>";
-    if ($isRoot) {
-        $temp = explode('/', DATADIR);
-        $mainRoot = $temp[1];
-        $html .= "<li><label> <input type='radio' name='VZToMove' value='".DATADIR."'>".$mainRoot.'</label><ul>';
+// List contents
+$items = [];
+if (is_dir($path)) {
+    foreach (scandir($path) as $f) {
+        if ($f === '.' || $f === '..') continue;
+        $full = $path . $f;
+        $items[] = [
+            'name' => $f,
+            'is_dir' => is_dir($full),
+            'size' => is_file($full) ? round(filesize($full)/1024, 1) . ' KB' : '—',
+            'mtime' => date('Y-m-d H:i', filemtime($full))
+        ];
     }
-    $inhalt = scandir($root);
-    foreach ($inhalt as $key) {
-        if ($key!="."&&$key!="..") {
-            if (is_dir($root.$key)) {
-                $html .= "<li><label> <input type='radio' name='VZToMove' value='".$root.$key."/'>" . $key."</label>";
-                $html .= zeigeVZStruktur($root.$key."/",false);
-                $html .= "</li>";
-            }
-        }
-    }
-    if ($isRoot) {
-        $html .= '</li></ul>';
-    }
-    $html .= "</ul>";
-    return $html;
 }
+
+function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
-    <meta charset="UTF-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CIA Secret Lab</title>
-    <link rel="icon" type="image/x-icon" href="images/favicon.ico">
-    <link rel="stylesheet" href="cloud.css">
-    <script src="js/jquery-3.4.1.min.js"></script>
-    <script>
-        function JS_leseVZ(js_pfad) {
-            document.getElementById("VZ").value=js_pfad;
-            document.getElementById("frm").submit();
-        }
-        function JS_legeVZAn(){
-            document.getElementById("wasTun").value="anlegen";
-            document.getElementById("frm").submit();
-        }
-        function JS_loeschDVV(){
-            document.getElementById("wasTun").value="löschen";
-            document.getElementById("frm").submit();
-        }
-        function JS_blendeVZStructurEin(){
-            $("#fsStruktur").toggle();
-        }
-        function JS_verschiebe(){
-            document.getElementById("wasTun").value="verschieben";
-            document.getElementById("frm").submit();
-        }
-        function JS_blendeUmbennenenFeldEin(){
-            $("#fsUmbenennen").toggle();
-        }
-        function JS_Umbenennen() {
-            document.getElementById("wasTun").value="umbenennen";
-            document.getElementById("frm").submit();
-        }
-    </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nano Cloud</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #050507; --card: #0f0f14; --border: #1c1c26;
+      --text: #eee; --muted: #888; --accent: #8b5cf6;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      background: #0a0a0e;
+    }
+    .logo { font-weight: 700; font-size: 1.15rem; }
+    .logo span { color: var(--accent); }
+    .user { color: var(--muted); font-size: 0.85rem; }
+    .user a { color: var(--accent); text-decoration: none; margin-left: 1rem; }
+
+    .wrap { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.6rem;
+      margin-bottom: 1.2rem;
+      align-items: center;
+    }
+    input[type=text], input[type=file] {
+      background: #0a0a0e;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.5rem 0.8rem;
+      color: var(--text);
+      font-size: 0.9rem;
+    }
+    button, .btn {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0.5rem 1rem;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+    }
+    button.ghost {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+    }
+    .msg {
+      background: rgba(139,92,246,0.12);
+      border: 1px solid rgba(139,92,246,0.3);
+      color: #c4b5fd;
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+    }
+
+    .path {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      color: var(--muted);
+      margin-bottom: 1rem;
+      word-break: break-all;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--card);
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+      font-size: 0.9rem;
+    }
+    th { background: #0a0a0e; color: var(--muted); font-weight: 500; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(139,92,246,0.05); }
+    .dir { font-weight: 600; color: #a78bfa; cursor: pointer; }
+    .dir:hover { text-decoration: underline; }
+    .size, .date { color: var(--muted); font-size: 0.85rem; }
+
+    form.inline { display: inline; }
+  </style>
 </head>
-
 <body>
+  <header>
+    <div class="logo">Nano<span>Cloud</span></div>
+    <div class="user">
+      <?= h($_SESSION['name'] ?? 'User') ?>
+      <a href="?logout=1">Logout</a>
+    </div>
+  </header>
 
-    <!-- <?php echo($msg); ?> -->
-    <form method="post" id="frm" enctype="multipart/form-data">
-        <input type="hidden" name="VZ" id="VZ" value="<?php echo($pfad); ?>">
-        <input type="hidden" name="wasTun" id="wasTun">
-            <fieldset id="fsAnlegeVZ" >
-                <input type="text" id="VZNeu" name="VZNeu">
-                <input type="button" value="Folder besaz" onclick="JS_legeVZAn();">
-            </fieldset>
-            <fieldset id="fsHochladen">
-                <input type="file" name="auswahlUL[]" multiple>
-                <input type="submit" value="upload">
-            </fieldset>
-            <fieldset>
-                <fieldset id="fsStruktur">
-                    <?php 
-                    $Struktur= zeigeVZStruktur(DATADIR);
-                    echo ($Struktur);
-                    
-                    ?>
-                    <button type="button" onclick="JS_verschiebe();">inja </button>
-                </fieldset>
-                <fieldset id="fsUmbenennen">
-                    <input type="text" name="DVVUmbenennen">
-                    <button type="button" onclick="JS_Umbenennen();">ok</button>
-                </fieldset>
-            <header>
-            </header>
-            
-            <nav>
-                <?php 
-                    $brotkruemelnav= erzeugeBrotkruemelnav($pfad);
-                    echo($brotkruemelnav);
-                    
-                ?>
-            </nav>
-            <main>
-                <?php
-                
-                $content = zeigeVzInhalt($pfad);
-                echo ($content);
-                ?>
-                <button type="button" onclick="JS_loeschDVV();"> gand zadam pak kon</button>
-                <button type="button" onclick="JS_blendeVZStructurEin();">ina ke alamat zadam o move bede...</button>
-                <button type="button" onclick="JS_blendeUmbennenenFeldEin();">rename kon</button>
-            </main>
-            </fieldset>
-        <footer></footer>
+  <?php
+  if (isset($_GET['logout'])) {
+      session_destroy();
+      header('Location: login.php');
+      exit;
+  }
+  ?>
+
+  <div class="wrap">
+    <?php if ($msg): ?><div class="msg"><?= h($msg) ?></div><?php endif; ?>
+
+    <div class="path">📁 <?= h($rel) ?></div>
+
+    <div class="toolbar">
+      <!-- Navigate up -->
+      <?php if ($rel !== '/'): ?>
+        <form method="post" class="inline">
+          <input type="hidden" name="path" value="<?= h(dirname($rel) === '\\' || dirname($rel) === '.' ? '' : dirname($rel)) ?>">
+          <button type="submit" class="ghost">↑ Up</button>
+        </form>
+      <?php endif; ?>
+
+      <!-- New folder -->
+      <form method="post" class="inline" style="display:flex;gap:0.4rem">
+        <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
+        <input type="hidden" name="action" value="mkdir">
+        <input type="text" name="name" placeholder="New folder" required style="width:130px">
+        <button type="submit">Create</button>
+      </form>
+
+      <!-- Upload -->
+      <form method="post" enctype="multipart/form-data" class="inline" style="display:flex;gap:0.4rem">
+        <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
+        <input type="hidden" name="action" value="upload">
+        <input type="file" name="file[]" multiple required>
+        <button type="submit">Upload</button>
+      </form>
+    </div>
+
+    <form method="post">
+      <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
+      <input type="hidden" name="action" value="delete">
+
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px"></th>
+            <th>Name</th>
+            <th>Size</th>
+            <th>Modified</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php if (empty($items)): ?>
+            <tr><td colspan="4" style="color:var(--muted)">Empty folder</td></tr>
+          <?php else: foreach ($items as $item): ?>
+            <tr>
+              <td><input type="checkbox" name="items[]" value="<?= h($item['name']) ?>"></td>
+              <td>
+                <?php if ($item['is_dir']): ?>
+                  <form method="post" class="inline">
+                    <input type="hidden" name="path" value="<?= h(trim($rel,'/').'/'.$item['name']) ?>">
+                    <button type="submit" class="dir" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer">
+                      📁 <?= h($item['name']) ?>
+                    </button>
+                  </form>
+                <?php else: ?>
+                  📄 <?= h($item['name']) ?>
+                <?php endif; ?>
+              </td>
+              <td class="size"><?= h($item['size']) ?></td>
+              <td class="date"><?= h($item['mtime']) ?></td>
+            </tr>
+          <?php endforeach; endif; ?>
+        </tbody>
+      </table>
+
+      <div style="margin-top:1rem">
+        <button type="submit" class="ghost" onclick="return confirm('Delete selected?')">Delete selected</button>
+      </div>
     </form>
-</body>
 
+    <!-- Simple rename -->
+    <form method="post" style="margin-top:1.5rem;display:flex;gap:0.5rem;align-items:center">
+      <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
+      <input type="hidden" name="action" value="rename">
+      <input type="text" name="old" placeholder="Old name" style="width:140px" required>
+      <input type="text" name="new" placeholder="New name" style="width:140px" required>
+      <button type="submit">Rename</button>
+    </form>
+  </div>
+</body>
 </html>
