@@ -6,7 +6,65 @@ if (empty($_SESSION['loggedin'])) {
     exit;
 }
 
-// Root directory for files (create this folder on your host)
+$USERS_FILE = __DIR__ . '/users.json';
+
+function loadUsers() {
+    global $USERS_FILE;
+    if (!file_exists($USERS_FILE)) return [];
+    return json_decode(file_get_contents($USERS_FILE), true) ?: [];
+}
+
+function saveUsers($users) {
+    global $USERS_FILE;
+    file_put_contents($USERS_FILE, json_encode($users, JSON_PRETTY_PRINT));
+}
+
+$isAdmin = ($_SESSION['role'] ?? '') === 'admin';
+$msg = '';
+
+// ========== USER MANAGEMENT (Admin only) ==========
+if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? '';
+
+    if ($action === 'create_user') {
+        $email = trim($_POST['email'] ?? '');
+        $pass  = $_POST['password'] ?? '';
+        $name  = trim($_POST['name'] ?? '') ?: explode('@', $email)[0];
+        $role  = ($_POST['role'] ?? 'user') === 'admin' ? 'admin' : 'user';
+
+        if ($email && $pass) {
+            $users = loadUsers();
+            if (isset($users[$email])) {
+                $msg = "User already exists";
+            } else {
+                $users[$email] = [
+                    'password' => $pass,
+                    'role'     => $role,
+                    'name'     => $name
+                ];
+                saveUsers($users);
+                $msg = "User created: $email";
+            }
+        }
+    }
+
+    if ($action === 'delete_user' && !empty($_POST['email'])) {
+        $email = $_POST['email'];
+        $users = loadUsers();
+
+        // Prevent deleting yourself
+        if ($email === $_SESSION['user']) {
+            $msg = "You cannot delete your own account";
+        } elseif (isset($users[$email])) {
+            unset($users[$email]);
+            saveUsers($users);
+            $msg = "User deleted: $email";
+        }
+    }
+}
+// ==================================================
+
+// Root directory for files
 define('ROOT', __DIR__ . '/files/');
 if (!is_dir(ROOT)) mkdir(ROOT, 0755, true);
 
@@ -20,9 +78,7 @@ if (!empty($_POST['path'])) {
 $rel = str_replace(realpath(ROOT), '', realpath($path));
 $rel = $rel === '' ? '/' : $rel;
 
-$msg = '';
-
-// Actions
+// File actions
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
@@ -47,7 +103,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $full = realpath($path . basename($item));
             if ($full && str_starts_with($full, realpath(ROOT))) {
                 if (is_dir($full)) {
-                    // simple recursive delete
                     $it = new RecursiveDirectoryIterator($full, RecursiveDirectoryIterator::SKIP_DOTS);
                     $files = new RecursiveIteratorIterator($it, RecursiveIteratorIterator::CHILD_FIRST);
                     foreach ($files as $f) $f->isDir() ? rmdir($f) : unlink($f);
@@ -69,20 +124,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 }
 
-// List contents
+// List files
 $items = [];
 if (is_dir($path)) {
     foreach (scandir($path) as $f) {
         if ($f === '.' || $f === '..') continue;
         $full = $path . $f;
         $items[] = [
-            'name' => $f,
+            'name'   => $f,
             'is_dir' => is_dir($full),
-            'size' => is_file($full) ? round(filesize($full)/1024, 1) . ' KB' : '—',
-            'mtime' => date('Y-m-d H:i', filemtime($full))
+            'size'   => is_file($full) ? round(filesize($full)/1024, 1) . ' KB' : '—',
+            'mtime'  => date('Y-m-d H:i', filemtime($full))
         ];
     }
 }
+
+$allUsers = $isAdmin ? loadUsers() : [];
 
 function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
 ?>
@@ -117,8 +174,40 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
     .logo span { color: var(--accent); }
     .user { color: var(--muted); font-size: 0.85rem; }
     .user a { color: var(--accent); text-decoration: none; margin-left: 1rem; }
+    .badge {
+      background: rgba(139,92,246,0.2);
+      color: #c4b5fd;
+      font-size: 0.7rem;
+      padding: 0.15rem 0.5rem;
+      border-radius: 999px;
+      margin-left: 0.5rem;
+    }
 
     .wrap { max-width: 960px; margin: 0 auto; padding: 1.5rem; }
+
+    .tabs {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .tab {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 0.5rem 1.1rem;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+    .tab.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+
+    .section { display: none; }
+    .section.active { display: block; }
 
     .toolbar {
       display: flex;
@@ -127,7 +216,7 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
       margin-bottom: 1.2rem;
       align-items: center;
     }
-    input[type=text], input[type=file] {
+    input[type=text], input[type=password], input[type=file], select {
       background: #0a0a0e;
       border: 1px solid var(--border);
       border-radius: 8px;
@@ -150,6 +239,9 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
       border: 1px solid var(--border);
       color: var(--text);
     }
+    button.danger {
+      background: #dc2626;
+    }
     .msg {
       background: rgba(139,92,246,0.12);
       border: 1px solid rgba(139,92,246,0.3);
@@ -165,7 +257,6 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
       font-size: 0.85rem;
       color: var(--muted);
       margin-bottom: 1rem;
-      word-break: break-all;
     }
 
     table {
@@ -186,10 +277,18 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
     tr:last-child td { border-bottom: none; }
     tr:hover td { background: rgba(139,92,246,0.05); }
     .dir { font-weight: 600; color: #a78bfa; cursor: pointer; }
-    .dir:hover { text-decoration: underline; }
     .size, .date { color: var(--muted); font-size: 0.85rem; }
 
     form.inline { display: inline; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .card h3 { margin-bottom: 1rem; font-size: 1.1rem; }
   </style>
 </head>
 <body>
@@ -197,6 +296,7 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
     <div class="logo">Nano<span>Cloud</span></div>
     <div class="user">
       <?= h($_SESSION['name'] ?? 'User') ?>
+      <?php if ($isAdmin): ?><span class="badge">ADMIN</span><?php endif; ?>
       <a href="?logout=1">Logout</a>
     </div>
   </header>
@@ -212,85 +312,166 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
   <div class="wrap">
     <?php if ($msg): ?><div class="msg"><?= h($msg) ?></div><?php endif; ?>
 
-    <div class="path">📁 <?= h($rel) ?></div>
+    <?php if ($isAdmin): ?>
+    <div class="tabs">
+      <button class="tab active" onclick="showTab('files')">Files</button>
+      <button class="tab" onclick="showTab('users')">Users</button>
+    </div>
+    <?php endif; ?>
 
-    <div class="toolbar">
-      <!-- Navigate up -->
-      <?php if ($rel !== '/'): ?>
-        <form method="post" class="inline">
-          <input type="hidden" name="path" value="<?= h(dirname($rel) === '\\' || dirname($rel) === '.' ? '' : dirname($rel)) ?>">
-          <button type="submit" class="ghost">↑ Up</button>
+    <!-- ==================== FILES SECTION ==================== -->
+    <div id="files" class="section active">
+      <div class="path">📁 <?= h($rel) ?></div>
+
+      <div class="toolbar">
+        <?php if ($rel !== '/'): ?>
+          <form method="post" class="inline">
+            <input type="hidden" name="path" value="<?= h(dirname($rel) === '\\' || dirname($rel) === '.' ? '' : dirname($rel)) ?>">
+            <button type="submit" class="ghost">↑ Up</button>
+          </form>
+        <?php endif; ?>
+
+        <form method="post" class="inline" style="display:flex;gap:0.4rem">
+          <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
+          <input type="hidden" name="action" value="mkdir">
+          <input type="text" name="name" placeholder="New folder" required style="width:130px">
+          <button type="submit">Create</button>
         </form>
-      <?php endif; ?>
 
-      <!-- New folder -->
-      <form method="post" class="inline" style="display:flex;gap:0.4rem">
+        <form method="post" enctype="multipart/form-data" class="inline" style="display:flex;gap:0.4rem">
+          <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
+          <input type="hidden" name="action" value="upload">
+          <input type="file" name="file[]" multiple required>
+          <button type="submit">Upload</button>
+        </form>
+      </div>
+
+      <form method="post">
         <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
-        <input type="hidden" name="action" value="mkdir">
-        <input type="text" name="name" placeholder="New folder" required style="width:130px">
-        <button type="submit">Create</button>
+        <input type="hidden" name="action" value="delete">
+
+        <table>
+          <thead>
+            <tr>
+              <th style="width:40px"></th>
+              <th>Name</th>
+              <th>Size</th>
+              <th>Modified</th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php if (empty($items)): ?>
+              <tr><td colspan="4" style="color:var(--muted)">Empty folder</td></tr>
+            <?php else: foreach ($items as $item): ?>
+              <tr>
+                <td><input type="checkbox" name="items[]" value="<?= h($item['name']) ?>"></td>
+                <td>
+                  <?php if ($item['is_dir']): ?>
+                    <form method="post" class="inline">
+                      <input type="hidden" name="path" value="<?= h(trim($rel,'/').'/'.$item['name']) ?>">
+                      <button type="submit" class="dir" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer">
+                        📁 <?= h($item['name']) ?>
+                      </button>
+                    </form>
+                  <?php else: ?>
+                    📄 <?= h($item['name']) ?>
+                  <?php endif; ?>
+                </td>
+                <td class="size"><?= h($item['size']) ?></td>
+                <td class="date"><?= h($item['mtime']) ?></td>
+              </tr>
+            <?php endforeach; endif; ?>
+          </tbody>
+        </table>
+
+        <div style="margin-top:1rem">
+          <button type="submit" class="ghost" onclick="return confirm('Delete selected?')">Delete selected</button>
+        </div>
       </form>
 
-      <!-- Upload -->
-      <form method="post" enctype="multipart/form-data" class="inline" style="display:flex;gap:0.4rem">
+      <form method="post" style="margin-top:1.5rem;display:flex;gap:0.5rem;align-items:center">
         <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
-        <input type="hidden" name="action" value="upload">
-        <input type="file" name="file[]" multiple required>
-        <button type="submit">Upload</button>
+        <input type="hidden" name="action" value="rename">
+        <input type="text" name="old" placeholder="Old name" style="width:140px" required>
+        <input type="text" name="new" placeholder="New name" style="width:140px" required>
+        <button type="submit">Rename</button>
       </form>
     </div>
 
-    <form method="post">
-      <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
-      <input type="hidden" name="action" value="delete">
-
-      <table>
-        <thead>
-          <tr>
-            <th style="width:40px"></th>
-            <th>Name</th>
-            <th>Size</th>
-            <th>Modified</th>
-          </tr>
-        </thead>
-        <tbody>
-          <?php if (empty($items)): ?>
-            <tr><td colspan="4" style="color:var(--muted)">Empty folder</td></tr>
-          <?php else: foreach ($items as $item): ?>
-            <tr>
-              <td><input type="checkbox" name="items[]" value="<?= h($item['name']) ?>"></td>
-              <td>
-                <?php if ($item['is_dir']): ?>
-                  <form method="post" class="inline">
-                    <input type="hidden" name="path" value="<?= h(trim($rel,'/').'/'.$item['name']) ?>">
-                    <button type="submit" class="dir" style="background:none;border:none;padding:0;font:inherit;color:inherit;cursor:pointer">
-                      📁 <?= h($item['name']) ?>
-                    </button>
-                  </form>
-                <?php else: ?>
-                  📄 <?= h($item['name']) ?>
-                <?php endif; ?>
-              </td>
-              <td class="size"><?= h($item['size']) ?></td>
-              <td class="date"><?= h($item['mtime']) ?></td>
-            </tr>
-          <?php endforeach; endif; ?>
-        </tbody>
-      </table>
-
-      <div style="margin-top:1rem">
-        <button type="submit" class="ghost" onclick="return confirm('Delete selected?')">Delete selected</button>
+    <!-- ==================== USERS SECTION (Admin) ==================== -->
+    <?php if ($isAdmin): ?>
+    <div id="users" class="section">
+      <div class="card">
+        <h3>Create New Account</h3>
+        <form method="post" style="display:flex;flex-wrap:wrap;gap:0.6rem;align-items:end">
+          <input type="hidden" name="action" value="create_user">
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">Email</label><br>
+            <input type="text" name="email" required placeholder="user@nano.com" style="width:180px">
+          </div>
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">Password</label><br>
+            <input type="password" name="password" required style="width:140px">
+          </div>
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">Name</label><br>
+            <input type="text" name="name" placeholder="Optional" style="width:120px">
+          </div>
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">Role</label><br>
+            <select name="role">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+          <button type="submit">Create Account</button>
+        </form>
       </div>
-    </form>
 
-    <!-- Simple rename -->
-    <form method="post" style="margin-top:1.5rem;display:flex;gap:0.5rem;align-items:center">
-      <input type="hidden" name="path" value="<?= h(ltrim($rel,'/')) ?>">
-      <input type="hidden" name="action" value="rename">
-      <input type="text" name="old" placeholder="Old name" style="width:140px" required>
-      <input type="text" name="new" placeholder="New name" style="width:140px" required>
-      <button type="submit">Rename</button>
-    </form>
+      <div class="card">
+        <h3>All Accounts</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Email</th>
+              <th>Name</th>
+              <th>Role</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <?php foreach ($allUsers as $email => $u): ?>
+              <tr>
+                <td><?= h($email) ?></td>
+                <td><?= h($u['name'] ?? '') ?></td>
+                <td><?= h($u['role'] ?? 'user') ?></td>
+                <td>
+                  <?php if ($email !== $_SESSION['user']): ?>
+                    <form method="post" class="inline" onsubmit="return confirm('Delete this user?')">
+                      <input type="hidden" name="action" value="delete_user">
+                      <input type="hidden" name="email" value="<?= h($email) ?>">
+                      <button type="submit" class="danger" style="padding:0.3rem 0.7rem;font-size:0.8rem">Delete</button>
+                    </form>
+                  <?php else: ?>
+                    <span style="color:var(--muted);font-size:0.8rem">You</span>
+                  <?php endif; ?>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <?php endif; ?>
   </div>
+
+  <script>
+    function showTab(id) {
+      document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      event.target.classList.add('active');
+    }
+  </script>
 </body>
 </html>
