@@ -22,6 +22,29 @@ function saveUsers($users) {
 $isAdmin = ($_SESSION['role'] ?? '') === 'admin';
 $msg = '';
 
+// ========== PASSWORD CHANGE (All users) ==========
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action'] ?? '') === 'change_password') {
+    $current = $_POST['current_password'] ?? '';
+    $new1    = $_POST['new_password'] ?? '';
+    $new2    = $_POST['confirm_password'] ?? '';
+
+    $users = loadUsers();
+    $email = $_SESSION['user'];
+
+    if (!isset($users[$email]) || $users[$email]['password'] !== $current) {
+        $msg = 'Current password is wrong';
+    } elseif (strlen($new1) < 4) {
+        $msg = 'New password must be at least 4 characters';
+    } elseif ($new1 !== $new2) {
+        $msg = 'New passwords do not match';
+    } else {
+        $users[$email]['password'] = $new1;
+        saveUsers($users);
+        $msg = 'Password changed successfully';
+    }
+}
+// ==================================================
+
 // ========== USER MANAGEMENT (Admin only) ==========
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
@@ -52,7 +75,6 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $email = $_POST['email'];
         $users = loadUsers();
 
-        // Prevent deleting yourself
         if ($email === $_SESSION['user']) {
             $msg = "You cannot delete your own account";
         } elseif (isset($users[$email])) {
@@ -189,6 +211,7 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
       display: flex;
       gap: 0.5rem;
       margin-bottom: 1.5rem;
+      flex-wrap: wrap;
     }
     .tab {
       background: transparent;
@@ -312,12 +335,13 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
   <div class="wrap">
     <?php if ($msg): ?><div class="msg"><?= h($msg) ?></div><?php endif; ?>
 
-    <?php if ($isAdmin): ?>
     <div class="tabs">
       <button class="tab active" onclick="showTab('files')">Files</button>
-      <button class="tab" onclick="showTab('users')">Users</button>
+      <button class="tab" onclick="showTab('account')">Account</button>
+      <?php if ($isAdmin): ?>
+        <button class="tab" onclick="showTab('users')">Users</button>
+      <?php endif; ?>
     </div>
-    <?php endif; ?>
 
     <!-- ==================== FILES SECTION ==================== -->
     <div id="files" class="section active">
@@ -396,6 +420,29 @@ function h($s) { return htmlspecialchars($s ?? '', ENT_QUOTES); }
         <input type="text" name="new" placeholder="New name" style="width:140px" required>
         <button type="submit">Rename</button>
       </form>
+    </div>
+
+    <!-- ==================== ACCOUNT SECTION ==================== -->
+    <div id="account" class="section">
+      <div class="card">
+        <h3>Change Password</h3>
+        <form method="post" style="display:flex;flex-direction:column;gap:0.8rem;max-width:320px">
+          <input type="hidden" name="action" value="change_password">
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">Current Password</label><br>
+            <input type="password" name="current_password" required style="width:100%">
+          </div>
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">New Password</label><br>
+            <input type="password" name="new_password" required style="width:100%">
+          </div>
+          <div>
+            <label style="font-size:0.8rem;color:var(--muted)">Confirm New Password</label><br>
+            <input type="password" name="confirm_password" required style="width:100%">
+          </div>
+          <button type="submit">Update Password</button>
+        </form>
+      </div>
     </div>
 
     <!-- ==================== USERS SECTION (Admin) ==================== -->
